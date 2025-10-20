@@ -36,5 +36,5 @@ public class Usuario {
     private String rol;
 
     @Column(name = "fecha_registro", nullable = false)
-    private Date fechaRegistro;
+    private Date fechaRegistro = new Date();
 }

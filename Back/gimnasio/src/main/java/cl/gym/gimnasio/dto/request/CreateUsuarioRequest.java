@@ -11,7 +11,6 @@ import java.util.Date;
 @AllArgsConstructor
 @NoArgsConstructor
 public class CreateUsuarioRequest {
-    private Integer idUsuario;
     private String nombre;
     private String email;
     private String password;

@@ -10,6 +10,7 @@ import cl.gym.gimnasio.service.UsuarioService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Date;
 import java.util.List;
 
 @Service
@@ -77,13 +78,11 @@ public class UsuarioServiceImpl implements UsuarioService {
             throw new Exception("El rol no puede ser nulo.");
         }
 
-        // Validar que la fecha no sea nula
-        if(createUsuarioRequest.getFechaRegistro() == null){
-            throw new Exception("La fecha registro no puede ser nula.");
-        }
-
         // Convertir de Request a Model
         Usuario usuario = UsuarioMapper.createRequestToModel(createUsuarioRequest);
+
+        // Asignar fecha automática
+        usuario.setFechaRegistro(new Date());
 
         // Persistir el modelo en db
         usuario =  usuarioRepository.save(usuario);
@@ -133,18 +132,12 @@ public class UsuarioServiceImpl implements UsuarioService {
             throw new Exception("El rol no puede ser nulo.");
         }
 
-        // Validar que la fecha no sea nula
-        if(createUsuarioRequest.getFechaRegistro() == null){
-            throw new Exception("La fecha registro no puede ser nula.");
-        }
-
         // Actualizar los datos del usuario con los nuevos valores
         usuario.setNombre(createUsuarioRequest.getNombre());
         usuario.setEmail(createUsuarioRequest.getEmail());
         usuario.setPassword(createUsuarioRequest.getPassword());
         usuario.setTelefono(createUsuarioRequest.getTelefono());
         usuario.setRol(createUsuarioRequest.getRol());
-        usuario.setFechaRegistro(createUsuarioRequest.getFechaRegistro());
 
         // Guardar Usuario actualizado
         usuario =  usuarioRepository.save(usuario);
