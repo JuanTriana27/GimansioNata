@@ -24,19 +24,27 @@ public class GeminiService {
     @Value("${gemini.api.key:AIzaSyCtJs8m-_4-kOXXRrTh0Vpn7AcNS00LU74}")
     private String apiKey;
 
+    // Timeout configurado para respuestas largas
+    private static final int TIMEOUT_MS = 60000;
+
     public GeminiService(WebClient.Builder webClientBuilder) {
         this.webClient = webClientBuilder.build();
         this.objectMapper = new ObjectMapper();
     }
 
     public Mono<GeminiResponse> generateChatResponse(GeminiRequest request) {
+        return generateChatResponse(request, 4096); // Default: 4096 tokens
+    }
+
+    public Mono<GeminiResponse> generateChatResponse(GeminiRequest request, int maxTokens) {
         String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-        Map<String, Object> requestBody = buildRequestBody(request.getMessage());
+        Map<String, Object> requestBody = buildRequestBody(request.getMessage(), maxTokens);
 
         System.out.println("=== INICIO REQUEST GEMINI ===");
         System.out.println("URL: " + url);
         System.out.println("Mensaje: " + request.getMessage());
+        System.out.println("Max Tokens: " + maxTokens);
         System.out.println("Request Body: " + requestBody);
 
         return webClient.post()
@@ -47,12 +55,21 @@ public class GeminiService {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnNext(response -> {
-                    System.out.println("RAW RESPONSE: " + response);
+                    System.out.println("RAW RESPONSE LENGTH: " + response.length());
+                    System.out.println("RAW RESPONSE (primeros 500 chars): " +
+                            response.substring(0, Math.min(500, response.length())));
+
+                    // Log completo si es respuesta larga
+                    if (response.length() > 1000) {
+                        System.out.println("RESPUESTA COMPLETA GUARDADA EN LOG LARGO");
+                        // Puedes guardar en archivo de log si necesitas
+                    }
                     System.out.println("=== FIN REQUEST GEMINI ===");
                 })
-                .flatMap(this::processGeminiResponse)
+                .flatMap(response -> processGeminiResponse(response))
                 .onErrorResume(error -> {
-                    System.out.println("Error: " + error.getMessage());
+                    System.out.println("Error llamando a Gemini: " + error.getMessage());
+                    error.printStackTrace();
                     return Mono.just(new GeminiResponse(
                             "Error llamando a Gemini: " + error.getMessage(),
                             "gemini-2.5-flash"
@@ -60,7 +77,7 @@ public class GeminiService {
                 });
     }
 
-    private Map<String, Object> buildRequestBody(String message) {
+    private Map<String, Object> buildRequestBody(String message, int maxOutputTokens) {
         Map<String, Object> requestBody = new HashMap<>();
 
         // Contents array
@@ -78,15 +95,15 @@ public class GeminiService {
 
         requestBody.put("contents", contentsList);
 
-        // Generation config
+        // Generation config - AUMENTADO SIGNIFICATIVAMENTE
         Map<String, Object> generationConfig = new HashMap<>();
-        generationConfig.put("temperature", 0.9); // Más creativo
-        generationConfig.put("maxOutputTokens", 2048); // Más largo
+        generationConfig.put("temperature", 0.7); // Reducido para respuestas más consistentes
+        generationConfig.put("maxOutputTokens", maxOutputTokens); // ¡AUMENTADO!
         generationConfig.put("topP", 0.8);
         generationConfig.put("topK", 40);
         requestBody.put("generationConfig", generationConfig);
 
-        // Safety settings (para evitar bloqueos)
+        // Safety settings (relajados para evitar bloqueos)
         List<Map<String, Object>> safetySettings = new ArrayList<>();
         String[] categories = {"HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
                 "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"};
@@ -94,7 +111,7 @@ public class GeminiService {
         for (String category : categories) {
             Map<String, Object> setting = new HashMap<>();
             setting.put("category", category);
-            setting.put("threshold", "BLOCK_MEDIUM_AND_ABOVE");
+            setting.put("threshold", "BLOCK_ONLY_HIGH"); // Más permisivo
             safetySettings.add(setting);
         }
         requestBody.put("safetySettings", safetySettings);
@@ -105,6 +122,7 @@ public class GeminiService {
     private Mono<GeminiResponse> processGeminiResponse(String response) {
         try {
             System.out.println("Procesando respuesta JSON...");
+            System.out.println("Longitud de respuesta: " + response.length());
 
             JsonNode jsonNode = objectMapper.readTree(response);
 
@@ -115,13 +133,22 @@ public class GeminiService {
                 return Mono.just(new GeminiResponse("Error de Gemini: " + errorMsg, "gemini-2.5-flash"));
             }
 
-            // Procesar respuesta exitosa - manera más robusta
+            // Procesar respuesta exitosa
             if (jsonNode.has("candidates")) {
                 JsonNode candidates = jsonNode.get("candidates");
                 if (candidates.isArray() && candidates.size() > 0) {
                     JsonNode firstCandidate = candidates.get(0);
 
-                    // Verificar si el candidato tiene content
+                    // Verificar si el candidato fue bloqueado
+                    if (firstCandidate.has("finishReason") &&
+                            "SAFETY".equals(firstCandidate.get("finishReason").asText())) {
+                        return Mono.just(new GeminiResponse(
+                                "La respuesta fue bloqueada por configuraciones de seguridad. Intenta con un prompt diferente.",
+                                "gemini-2.5-flash"
+                        ));
+                    }
+
+                    // Procesar contenido
                     if (firstCandidate.has("content")) {
                         JsonNode content = firstCandidate.get("content");
                         if (content.has("parts")) {
@@ -130,19 +157,23 @@ public class GeminiService {
                                 JsonNode firstPart = parts.get(0);
                                 if (firstPart.has("text")) {
                                     String text = firstPart.get("text").asText();
-                                    System.out.println("Texto extraído: " + text.substring(0, Math.min(100, text.length())) + "...");
+                                    System.out.println("Texto extraído - Longitud: " + text.length());
+                                    System.out.println("Primeros 200 chars: " +
+                                            text.substring(0, Math.min(200, text.length())));
+
+                                    if (text.length() < 50) {
+                                        System.out.println("ADVERTENCIA: Respuesta muy corta");
+                                    }
+
                                     return Mono.just(new GeminiResponse(text, "gemini-2.5-flash"));
                                 }
                             }
                         }
                     }
-
-                    // Si hay candidato pero no tiene la estructura esperada
-                    System.out.println("Candidato encontrado pero estructura inesperada: " + firstCandidate);
                 }
             }
 
-            // Si no hay candidatos, verificar si hay promptFeedback (bloqueo)
+            // Si no hay candidatos, verificar promptFeedback
             if (jsonNode.has("promptFeedback")) {
                 JsonNode promptFeedback = jsonNode.get("promptFeedback");
                 if (promptFeedback.has("blockReason")) {
@@ -150,16 +181,16 @@ public class GeminiService {
                     System.out.println("Contenido bloqueado: " + blockReason);
                     return Mono.just(new GeminiResponse(
                             "El contenido fue bloqueado por: " + blockReason +
-                                    ". Intenta con un prompt diferente.",
+                                    ". Intenta reformular tu pregunta.",
                             "gemini-2.5-flash"
                     ));
                 }
             }
 
-            // Si llegamos aquí, mostrar la respuesta completa para debug
-            System.out.println("Estructura de respuesta no reconocida. Respuesta completa: " + response);
+            // Log para debug
+            System.out.println("Estructura de respuesta no reconocida. Keys: " + jsonNode.fieldNames());
             return Mono.just(new GeminiResponse(
-                    "No se pudo obtener respuesta del modelo. Estructura inesperada.",
+                    "No se pudo procesar la respuesta del modelo. Estructura inesperada.",
                     "gemini-2.5-flash"
             ));
 
@@ -173,61 +204,52 @@ public class GeminiService {
         }
     }
 
-    // Método MEJORADO para rutinas de ejercicio
+    // Método MEJORADO para rutinas de ejercicio con MÁS TOKENS
     public Mono<GeminiResponse> generateWorkoutRoutine(String goal, String level, String duration) {
         String prompt = String.format("""
-            Eres un entrenador personal experto en fitness. Crea una rutina de ejercicios COMPLETA y DETALLADA para:
+            Eres un entrenador personal experto. Genera una rutina de ejercicios COMPLETA para:
             
             OBJETIVO: %s
-            NIVEL: %s
+            NIVEL: %s  
             DURACIÓN: %s
             
-            La rutina debe incluir:
+            La rutina debe ser PRÁCTICA y EJECUTABLE. Incluye:
             
-            1. CALENTAMIENTO (5-10 minutos):
-               - Ejercicios específicos de calentamiento
-               - Duración de cada ejercicio
-            
-            2. EJERCICIOS PRINCIPALES:
-               - Nombre del ejercicio
-               - Series y repeticiones
-               - Descanso entre series
-               - Técnica básica
-            
-            3. ENFRIAMIENTO (5 minutos):
-               - Estiramientos específicos
-               - Tiempo de cada estiramiento
-            
-            4. RECOMENDACIONES:
-               - Frecuencia semanal
-               - Progresión
-               - Precauciones
-               - Consejos de alimentación e hidratación
+            • CALENTAMIENTO (5-10 min): ejercicios específicos
+            • EJERCICIOS PRINCIPALES: nombre, series, repeticiones, descanso
+            • ENFRIAMIENTO: estiramientos
+            • RECOMENDACIONES: frecuencia, progresión, precauciones
             
             IMPORTANTE: 
-            - Sé MUY específico y detallado
-            - Usa ejercicios apropiados para el nivel %s
-            - Asegúrate de que la rutina ocupe exactamente %s
-            - Incluye al menos 5-8 ejercicios principales
-            - Formatea la respuesta de manera clara y organizada
+            - Sé CONCISO pero COMPLETO
+            - Ejercicios apropiados para nivel %s
+            - Duración total: %s
+            - Formato CLARO y ORGANIZADO
+            - Máximo 8 ejercicios principales
             
-            Responde SOLO con la rutina de ejercicios, sin introducciones largas.
+            Responde SOLO con la rutina, sin introducciones largas.
             """, goal, level, duration, level, duration);
 
-        System.out.println("Generando rutina para: " + goal + " | " + level + " | " + duration);
+        System.out.println("=== GENERANDO RUTINA ===");
+        System.out.println("Goal: " + goal);
+        System.out.println("Level: " + level);
+        System.out.println("Duration: " + duration);
+        System.out.println("Prompt length: " + prompt.length());
 
         GeminiRequest request = new GeminiRequest(prompt);
-        return generateChatResponse(request);
+
+        // ¡AUMENTAMOS LOS TOKENS PARA RUTINAS!
+        return generateChatResponse(request, 8192); // 8192 tokens máximo para gemini-2.5-flash
     }
 
-    // Test de conexión mejorado
+    // Test de conexión
     public Mono<String> testConnection() {
-        GeminiRequest request = new GeminiRequest("Responde brevemente con 'OK' para confirmar que el servicio funciona correctamente.");
+        GeminiRequest request = new GeminiRequest("Responde con 'OK' si funciona.");
 
-        return generateChatResponse(request)
+        return generateChatResponse(request, 100)
                 .map(response -> {
-                    if (response.getResponse().contains("Error") || response.getResponse().contains("bloqueado")) {
-                        return response.getResponse();
+                    if (response.getResponse().contains("Error")) {
+                        return "Error: " + response.getResponse();
                     }
                     return "✅ " + response.getResponse();
                 })

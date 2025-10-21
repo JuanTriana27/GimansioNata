@@ -24,7 +24,7 @@ public class Reserva {
     private Date fechaReserva;
 
     @Column(name = "estado", nullable = false, length = 20)
-    private String estado = "pendiente";
+    private String estado;
 
     // LLaves foraneas
     @ManyToOne

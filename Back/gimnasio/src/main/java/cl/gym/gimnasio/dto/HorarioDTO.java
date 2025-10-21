@@ -19,5 +19,5 @@ public class HorarioDTO {
     private LocalTime horaFin;
 
     // Llave Foranea
-    private Usuario coach;
+    private Integer coach;
 }

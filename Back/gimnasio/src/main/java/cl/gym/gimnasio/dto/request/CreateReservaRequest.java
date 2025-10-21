@@ -1,22 +1,23 @@
 package cl.gym.gimnasio.dto.request;
 
+import cl.gym.gimnasio.model.Clase;
 import cl.gym.gimnasio.model.Usuario;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalTime;
+import java.util.Date;
 
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class CreateHorarioRequest {
-    private String diaSemana;
-    private LocalTime horaInicio;
-    private LocalTime horaFin;
+public class CreateReservaRequest {
+    private Date fechaReserva;
+    private String estado;
 
-    // Llave Foranea
-    private Integer coach;
+    // Llaves foraneas
+    private Integer socio;
+    private Integer clase;
 }

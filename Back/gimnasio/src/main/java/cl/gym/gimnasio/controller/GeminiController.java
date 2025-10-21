@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.Map;
 
 @RestController
@@ -19,27 +20,30 @@ public class GeminiController {
         this.geminiService = geminiService;
     }
 
-    // Endpoint básico de chat
+    // Endpoint básico de chat con más tokens
     @PostMapping("/chat")
     public Mono<ResponseEntity<GeminiResponse>> chat(@RequestBody GeminiRequest request) {
-        return geminiService.generateChatResponse(request)
+        return geminiService.generateChatResponse(request, 4096) // Aumentado a 4096
                 .map(ResponseEntity::ok)
-                .defaultIfEmpty(ResponseEntity.badRequest().build());
+                .defaultIfEmpty(ResponseEntity.badRequest().build())
+                .timeout(Duration.ofSeconds(45)); // Timeout de 45 segundos
     }
 
     // Endpoint para chat con contexto de gimnasio
     @PostMapping("/chat/fitness")
     public Mono<ResponseEntity<GeminiResponse>> fitnessChat(@RequestBody GeminiRequest request) {
-        String fitnessContext = "Eres un asistente especializado en gimnasio y fitness. " +
-                "Proporciona respuestas útiles y profesionales sobre ejercicios, " +
-                "rutinas, nutrición y salud deportiva. Responde en español.";
+        String fitnessContext = "Eres un asistente especializado en gimnasio, fitness y salud. " +
+                "Proporciona respuestas COMPLETAS, prácticas y profesionales sobre: " +
+                "ejercicios, rutinas de entrenamiento, nutrición deportiva, técnicas adecuadas, " +
+                "prevención de lesiones y suplementación. Responde en español de manera clara y organizada.";
 
         String promptWithContext = fitnessContext + "\n\nPregunta: " + request.getMessage();
         GeminiRequest fitnessRequest = new GeminiRequest(promptWithContext);
 
-        return geminiService.generateChatResponse(fitnessRequest)
+        return geminiService.generateChatResponse(fitnessRequest, 4096) // 4096 tokens
                 .map(ResponseEntity::ok)
-                .defaultIfEmpty(ResponseEntity.badRequest().build());
+                .defaultIfEmpty(ResponseEntity.badRequest().build())
+                .timeout(Duration.ofSeconds(45));
     }
 
     // Endpoint específico para generar rutinas
@@ -59,7 +63,8 @@ public class GeminiController {
 
         return geminiService.generateWorkoutRoutine(goal, level, duration)
                 .map(ResponseEntity::ok)
-                .defaultIfEmpty(ResponseEntity.badRequest().build());
+                .defaultIfEmpty(ResponseEntity.badRequest().build())
+                .timeout(Duration.ofSeconds(60)); // 60 segundos para rutinas
     }
 
     // Endpoint GET simple

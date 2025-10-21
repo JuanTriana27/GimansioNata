@@ -1,6 +1,5 @@
 package cl.gym.gimnasio.dto.response;
 
-import cl.gym.gimnasio.model.Usuario;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,5 +18,5 @@ public class CreateHorarioResponse {
     private LocalTime horaFin;
 
     // Llave Foranea
-    private Usuario coach;
+    private Integer coach;
 }
